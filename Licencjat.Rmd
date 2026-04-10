@@ -1,0 +1,2250 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# PAKIETY
+```{r}
+library(readxl)
+library(dplyr)
+library(sf)
+library(tmap)
+library(tmaptools)
+library(janitor)
+library(gravity)
+library(ggplot2)
+library(ggrepel)
+library(tibble)
+library(osrm)
+library(lmtest)
+library(tidyr)
+library(spdep)
+library(knitr)
+library(xfun)
+library(purrr)
+```
+
+# SAVE
+```{r}
+saveRDS(DANE_2006, "DANE_2006.rds")
+```
+# WCZYTYWANIE DANYCH
+```{r}
+dane_2006 <- read_xls('DANE/assets_dojazdy_internet.xls')
+dane_2011 <- read_xls('DANE/macierz_przeplywow_ludnosci_zwiazanych_z_zatrudnieniem_nsp_2011.xls')
+dane_2016 <- read_xlsx('DANE/przeplywy_ludnosci_zwiazane_z_zatrudnieniem_w_2016_-__macierz_z_badania.xlsx', sheet = 1)
+dane_2021 <- read_xlsx('DANE/macierz_przeplywow_ludnosci_zwiazanych_z_zatrudnieniem_nsp_2021.xlsx', sheet = 2)
+
+ludnosc_2006 <- read_xlsx("DANE/ludnosc_2006.xlsx", sheet = 2)
+ludnosc_2011 <- read_xlsx("DANE/ludnosc_2011.xlsx", sheet = 2)
+ludnosc_2016 <- read_xlsx("DANE/ludnosc_2016.xlsx", sheet = 2)
+ludnosc_2021 <- read_xlsx("DANE/ludnosc_2021.xlsx", sheet = 2)
+
+ludnosc_produkcyjna_2006 <- read_xlsx("DANE/ludnosc_produkcyjna_2006.xlsx", sheet = 2)
+ludnosc_produkcyjna_2011 <- read_xlsx("DANE/ludnosc_produkcyjna_2011.xlsx", sheet = 2)
+ludnosc_produkcyjna_2016 <- read_xlsx("DANE/ludnosc_produkcyjna_2016.xlsx", sheet = 2)
+ludnosc_produkcyjna_2021 <- read_xlsx("DANE/ludnosc_produkcyjna_2021.xlsx", sheet = 2)
+
+udzial_dochod_2006 <- read_xlsx("DANE/udzial_dochod_2006.xlsx", sheet = 2)
+udzial_dochod_2011 <- read_xlsx("DANE/udzial_dochod_2011.xlsx", sheet = 2)
+udzial_dochod_2016 <- read_xlsx("DANE/udzial_dochod_2016.xlsx", sheet = 2)
+udzial_dochod_2021 <- read_xlsx("DANE/udzial_dochod_2021.xlsx", sheet = 2)
+```
+# MAPKA DANE 2006
+```{r}
+Gmina_Bydgoszcz_2006 <- dane_2006 %>% 
+  filter(Adres_PL == "0461011") %>%  
+  select(PO_Gmina, Liczba_osob) %>%
+  mutate(
+    PO_Gmina = case_when(
+      PO_Gmina %in% c("Solec Kujawski - miasto", "Solec Kujawski - obszar wiejski") ~ "Solec Kujawski",
+      PO_Gmina %in% c("Koronowo - miasto", "Koronowo - obszar wiejski") ~ "Koronowo",
+      PO_Gmina %in% c("Kcynia- miasto", "Kcynia - obszar wiejski") ~ "Kcynia",
+      PO_Gmina %in% c("Mrocza - miasto", "Mrocza - obszar wiejski") ~ "Mrocza",
+      PO_Gmina %in% c("Nakło nad Notecią - miasto", "Nakło nad Notecią - obszar wiejski") ~ "Nakło nad Notecią",
+      PO_Gmina %in% c("Szubin - miasto", "Szubin - obszar wiejski") ~ "Szubin",
+      PO_Gmina %in% c("Barcin - miasto", "Barcin - obszar wiejski") ~ "Barcin",
+      PO_Gmina %in% c("Łabiszyn - miasto", "Łabiszyn - obszar wiejski") ~ "Łabiszyn",
+      PO_Gmina %in% c("Żnin - miasto", "Żnin - obszar wiejski") ~ "Żnin",
+      TRUE ~ PO_Gmina
+    )
+  ) %>%
+  filter(PO_Gmina %in% c(
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>%
+  group_by(PO_Gmina) %>%
+  summarise(Liczba_osob = sum(Liczba_osob, na.rm = TRUE)) %>% 
+  rename(`Liczba osób` = Liczba_osob)
+
+
+gminy <- st_read('DANE/gminy.shp') %>% 
+  filter(JPT_NAZWA_ %in% c(
+    "Bydgoszcz",
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>% 
+  rename(PO_Gmina=JPT_NAZWA_)
+
+ razem_2006 <- left_join(gminy, Gmina_Bydgoszcz_2006)
+
+ bydgoszcz_sf  <- razem_2006 %>% filter(PO_Gmina == "Bydgoszcz")
+ 
+tm_shape(razem_2006)+
+tm_polygons('Liczba osób')+
+  tm_text(text = 'PO_Gmina', size=0.6)+
+  tm_text(text='Liczba osób',size=0.6, ymod=-0.9)+
+tm_shape(bydgoszcz_sf) +
+  tm_polygons(col = "#FFD166", border.col = "black", legend.show = FALSE)+
+  tm_text(text='Bydgoszcz', size=0.6 )
+
+
+
+```
+# MAPKA DANE 2011
+```{r}
+Gmina_Bydgoszcz_2011 <- dane_2011 %>% 
+  filter(`Kod terytorialny gminy pracy`== "0461011") %>% 
+  select(`Gmina zamieszkania`, `Liczba osób`) %>% 
+  mutate(
+    `Gmina zamieszkania` = case_when(
+      `Gmina zamieszkania` %in% c("Solec Kujawski - miasto", "Solec Kujawski - obszar wiejski") ~ "Solec Kujawski",
+      `Gmina zamieszkania` %in% c("Koronowo - miasto", "Koronowo - obszar wiejski") ~ "Koronowo",
+      `Gmina zamieszkania` %in% c("Kcynia- miasto", "Kcynia - obszar wiejski") ~ "Kcynia",
+      `Gmina zamieszkania` %in% c("Mrocza - miasto", "Mrocza - obszar wiejski") ~ "Mrocza",
+      `Gmina zamieszkania` %in% c("Nakło nad Notecią - miasto", "Nakło nad Notecią - obszar wiejski") ~ "Nakło nad Notecią",
+      `Gmina zamieszkania` %in% c("Szubin - miasto", "Szubin - obszar wiejski") ~ "Szubin",
+      `Gmina zamieszkania` %in% c("Barcin - miasto", "Barcin - obszar wiejski") ~ "Barcin",
+      `Gmina zamieszkania` %in% c("Łabiszyn - miasto", "Łabiszyn - obszar wiejski") ~ "Łabiszyn",
+      `Gmina zamieszkania` %in% c("Żnin - miasto", "Żnin - obszar wiejski") ~ "Żnin",
+      TRUE ~ `Gmina zamieszkania`
+    )
+  ) %>%
+  filter(`Gmina zamieszkania` %in% c(
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>%
+  group_by(`Gmina zamieszkania`) %>%
+  summarise(`Liczba osób` = sum(`Liczba osób`, na.rm = TRUE))
+
+
+gminy <- st_read('DANE/gminy.shp') %>% 
+  filter(JPT_NAZWA_ %in% c(
+    "Bydgoszcz",
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>% 
+  rename(`Gmina zamieszkania`=JPT_NAZWA_)
+
+ razem_2011 <- left_join(gminy, Gmina_Bydgoszcz_2011)
+
+ bydgoszcz_sf  <- razem_2011 %>% filter(`Gmina zamieszkania` == "Bydgoszcz")
+ 
+tm_shape(razem_2011)+
+tm_polygons('Liczba osób')+
+  tm_text(text = 'Gmina zamieszkania', size=0.6)+
+  tm_text(text='Liczba osób',size=0.6, ymod=-0.9)+
+tm_shape(bydgoszcz_sf) +
+  tm_polygons(col = "#FFD166", border.col = "black", legend.show = FALSE)+
+  tm_text(text='Bydgoszcz', size=0.6 )
+```
+# MAPKA DANE 2016
+```{r}
+Gmina_Bydgoszcz_2016 <- dane_2016 %>% 
+  filter(`Kod gminy miejsca pracy`== "0461011") %>% 
+  select(`Gmina miejsca zamieszkania`, `Liczba osób`) %>% 
+  mutate(
+    `Gmina miejsca zamieszkania` = case_when(
+      `Gmina miejsca zamieszkania` %in% c("Solec Kujawski - miasto", "Solec Kujawski - obszar wiejski") ~ "Solec Kujawski",
+      `Gmina miejsca zamieszkania` %in% c("Koronowo - miasto", "Koronowo - obszar wiejski") ~ "Koronowo",
+      `Gmina miejsca zamieszkania` %in% c("Kcynia- miasto", "Kcynia - obszar wiejski") ~ "Kcynia",
+      `Gmina miejsca zamieszkania` %in% c("Mrocza - miasto", "Mrocza - obszar wiejski") ~ "Mrocza",
+      `Gmina miejsca zamieszkania` %in% c("Nakło nad Notecią - miasto", "Nakło nad Notecią - obszar wiejski") ~ "Nakło nad Notecią",
+      `Gmina miejsca zamieszkania` %in% c("Szubin - miasto", "Szubin - obszar wiejski") ~ "Szubin",
+      `Gmina miejsca zamieszkania` %in% c("Barcin - miasto", "Barcin - obszar wiejski") ~ "Barcin",
+      `Gmina miejsca zamieszkania` %in% c("Łabiszyn - miasto", "Łabiszyn - obszar wiejski") ~ "Łabiszyn",
+      `Gmina miejsca zamieszkania` %in% c("Żnin - miasto", "Żnin - obszar wiejski") ~ "Żnin",
+      TRUE ~ `Gmina miejsca zamieszkania`
+    )
+  ) %>%
+  filter(`Gmina miejsca zamieszkania` %in% c(
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>%
+  group_by(`Gmina miejsca zamieszkania`) %>%
+  summarise(`Liczba osób` = sum(`Liczba osób`, na.rm = TRUE))
+
+
+gminy <- st_read('DANE/gminy.shp') %>% 
+  filter(JPT_NAZWA_ %in% c(
+    "Bydgoszcz",
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>% 
+  rename(`Gmina miejsca zamieszkania`=JPT_NAZWA_)
+
+razem_2016 <- left_join(gminy, Gmina_Bydgoszcz_2016)
+
+bydgoszcz_sf  <- razem_2016 %>% filter(`Gmina miejsca zamieszkania` == "Bydgoszcz")
+
+
+tm_shape(razem_2016)+
+tm_polygons('Liczba osób')+
+  tm_text(text = "Gmina miejsca zamieszkania", size=0.6)+
+  tm_text(text='Liczba osób',size=0.6, ymod=-0.9)+
+tm_shape(bydgoszcz_sf) +
+  tm_polygons(col = "#FFD166", border.col = "black", legend.show = FALSE)+
+  tm_text(text='Bydgoszcz', size=0.6 )
+ 
+
+
+```
+# MAPKA DANE 2021
+```{r}
+Gmina_Bydgoszcz_2021 <- dane_2021 %>% 
+  clean_names() %>% 
+  filter(kod_gminy_pracy_gmina_of_labour_territorial_code== "0461011") %>% 
+  select(nazwa_gminy_zamieszkania_gmina_of_residence_name, dojezdzajacy_commuters) %>% 
+  mutate(
+    nazwa_gminy_zamieszkania_gmina_of_residence_name = case_when(
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Solec Kujawski - miasto", "Solec Kujawski - obszar wiejski") ~ "Solec Kujawski",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Koronowo - miasto", "Koronowo - obszar wiejski") ~ "Koronowo",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Kcynia- miasto", "Kcynia - obszar wiejski") ~ "Kcynia",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Mrocza - miasto", "Mrocza - obszar wiejski") ~ "Mrocza",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Nakło nad Notecią - miasto", "Nakło nad Notecią - obszar wiejski") ~ "Nakło nad Notecią",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Szubin - miasto", "Szubin - obszar wiejski") ~ "Szubin",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Barcin - miasto", "Barcin - obszar wiejski") ~ "Barcin",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Łabiszyn - miasto", "Łabiszyn - obszar wiejski") ~ "Łabiszyn",
+      nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c("Żnin - miasto", "Żnin - obszar wiejski") ~ "Żnin",
+      TRUE ~ nazwa_gminy_zamieszkania_gmina_of_residence_name
+    )
+  ) %>%
+  filter(nazwa_gminy_zamieszkania_gmina_of_residence_name %in% c(
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>%
+  group_by(nazwa_gminy_zamieszkania_gmina_of_residence_name) %>%
+  summarise(dojezdzajacy_commuters = sum(dojezdzajacy_commuters, na.rm = TRUE)) %>% 
+  rename(`Liczba osób` = dojezdzajacy_commuters)
+
+
+gminy <- st_read('DANE/gminy.shp') %>% 
+  filter(JPT_NAZWA_ %in% c(
+    "Bydgoszcz",
+    "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+  )) %>% 
+  rename(nazwa_gminy_zamieszkania_gmina_of_residence_name=JPT_NAZWA_)
+
+razem_2021 <- left_join(gminy, Gmina_Bydgoszcz_2021)
+
+bydgoszcz_sf  <- razem_2021 %>% filter(nazwa_gminy_zamieszkania_gmina_of_residence_name == "Bydgoszcz")
+
+tm_shape(razem_2021)+
+tm_polygons('Liczba osób')+
+  tm_text(text = "nazwa_gminy_zamieszkania_gmina_of_residence_name", size=0.6)+
+  tm_text(text='Liczba osób',size=0.6, ymod=-0.9)+
+tm_shape(bydgoszcz_sf) +
+  tm_polygons(col = "#FFD166", border.col = "black", legend.show = FALSE)+
+  tm_text(text='Bydgoszcz', size=0.6 )
+
+
+  
+```
+# PRZESTĘPSTWA
+```{r}
+powiaty <- st_read("DANE/powiaty.shp")
+
+przestepstwa <- read_xlsx("DANE/ORGA_2290_XTAB_20260103143355.xlsx", sheet = 2) %>% 
+  
+  slice(-(1:2)) %>% 
+  mutate(
+    Kod = as.character(Kod),
+    JPT_KOD_JE = substr(Kod, 1, 4),          
+    PRZ = as.numeric(`przestępstwa stwierdzone przez Policję ogółem na 1000 mieszkańców`)
+  ) %>% 
+  select(JPT_KOD_JE, PRZ)
+
+razem <- left_join(
+  powiaty,
+  przestepstwa,
+  by = "JPT_KOD_JE"
+)
+
+tmap_mode("plot")
+tm_shape(razem) +
+  tm_polygons(
+    "PRZ",
+    title = "Liczba przestępstw stwierdzonych na 1000 mieszkańców",
+    textNA = "",
+    palette = "Reds",
+    style = "quantile",
+  ) +
+  tm_layout(frame = FALSE)
+
+```
+# WYNAGRODZENIA
+```{r}
+powiaty <- st_read('DANE/powiaty.shp')
+
+wynagrodzenia <- read_xlsx('DANE/sr_wynagrodzenie_2024.xlsx', sheet=2) %>% 
+  slice(-(1:2)) %>% 
+  mutate(
+    Kod = as.character(Kod),
+    JPT_KOD_JE = substr(Kod,1,4),
+    WYN = as.numeric(`ogółem`)
+  ) %>% 
+  select(JPT_KOD_JE, WYN)
+
+RAZEM_WYNAGRODZENIA <- left_join(powiaty, wynagrodzenia, by="JPT_KOD_JE")
+
+tmap_mode("plot")
+tm_shape(RAZEM_WYNAGRODZENIA) +
+  tm_polygons(
+    "WYN",
+    title = "Przeciętne miesięczne wynagrodzenia brutto (zł)",
+    textNA = "",
+    palette = "Reds",
+    style = "quantile",
+  )
+```
+# BEZROBOCIE
+```{r}
+powiaty <- st_read("DANE/powiaty.shp")
+
+bezrobocie <- read_xlsx('DANE/bezrobocie_2024xlsx.xlsx', sheet=2) %>% 
+  slice(-(1:2)) %>% 
+  mutate(
+    Kod = as.character(Kod),
+    JPT_KOD_JE = substr(Kod,1,4),
+    BEZ = as.numeric(`ogółem w % bezrobotnych ogółem`)
+  ) %>% 
+  select(JPT_KOD_JE, BEZ)
+
+RAZEM_BEZROBOCIE <- left_join(powiaty, bezrobocie, by="JPT_KOD_JE")
+
+tmap_mode("plot")
+tm_shape(RAZEM_BEZROBOCIE) +
+  tm_polygons(
+    "BEZ",
+    title = "Bezrobotni zarejestrowani pozostający\nbez pracy dłużej niż 1 rok (%)",
+    textNA = "",
+    palette = "Blues",
+    style = "quantile",
+  )
+```
+# MIESZKANIA
+```{r}
+powiaty <- st_read("DANE/powiaty.shp")
+
+cena_mieszkan <- read_xlsx("DANE/sr_cena_1m2_2024.xlsx", sheet=2) %>% 
+  slice(-(1:2)) %>% 
+  mutate(
+    Kod = as.character(Kod),
+    JPT_KOD_JE = substr(Kod,1,4),
+    CEN = as.numeric(`ogółem`)
+  ) %>% 
+  select(JPT_KOD_JE, CEN)
+
+RAZEM_CENA_MIESZKAN <- left_join(powiaty, cena_mieszkan, by="JPT_KOD_JE")
+
+tmap_mode("plot")
+tm_shape(RAZEM_CENA_MIESZKAN) +
+  tm_polygons(
+    "CEN",
+    title = "Średnia cena za 1 m² lokali mieszkalnych\nsprzedanych w ramach transakcji rynkowych (zł)",
+    textNA = "",
+    palette = "Greens",
+    style = "quantile",
+  )
+```
+
+# FUNKCJE W GRAVITY
+```{r}
+tabela <- data.frame(
+  Funkcja = c("bvu()", "bvw()", "ddm()", "discard_unusable()", "ek_tobit()", "et_tobit()", "fixed_effects()", "gpml()", "gravity_no_zeros()", "gravity_zeros()", "hm_summary()", "log_distance()", "nbpml()", "nls()", "ols()", "ppml()", "sils()", "tetrads()", "tobit()"),
+  `Opis i metoda estymacji` = c(
+    "Estymacja metodą Bonus vetus OLS przy użyciu prostych średnich do centrowania szeregu Taylora",
+    "Estymacja metodą Bonus vetus OLS przy użyciu wag dochodowych do centrowania szeregu Taylora",
+    "Estymacja poprzez podwójne odjęcie średniej (Double Demeaning) od obu stron równania grawitacyjnego",
+    "Usuwa ze zbioru danych obserwacje niedodatnie lub nieskończone, których nie można logarytmować",
+    "Model Tobit według Eatona i Kortuma (2001) z krajowymi granicami cenzurowania dla zerowych przepływów",
+    "Model Tobit według Eatona i Tamury (1995), w którym próg cenzurowania jest estymowany",
+    "Estymacja metodą OLS z efektami stałymi dla kraju pochodzenia i przeznaczenia w celu uwzględnienia oporu wielostronnego",
+    "Estymacja metodą Gamma Pseudo Maximum Likelihood (rozkład gamma, funkcja łącząca log)",
+    "Przykładowy zbiór danych grawitacyjnych, który nie zawiera zerowych przepływów handlowych",
+    "Przykładowy zbiór danych grawitacyjnych uwzględniający zerowe przepływy handlowe",
+    "Generuje podsumowanie wyników estymacji zgodne z metodologią Heada i Mayera (2014)",
+    "Automatycznie tworzy nową kolumnę zawierającą zlogarytmowane wartości dystansu",
+    "Estymacja metodą Negative Binomial Pseudo Maximum Likelihood (rozkład ujemny dwumianowy, funkcja łącząca log)",
+    "Estymacja nieliniową metodą najmniejszych kwadratów (Non-linear Least Squares)",
+    "Tradycyjna estymacja metodą zwykłych najmniejszych kwadratów; nie uwzględnia członów oporu wielostronnego",
+    "Estymacja metodą Poisson Pseudo Maximum Likelihood (rozkład quasipoisson, funkcja łącząca log)",
+    "Implementacja strukturalnej iteracyjnej metody najmniejszych kwadratów (Structural Iterated Least Squares)",
+    "Estymacja poprzez stosunek stosunków przepływów (ratio of ratios), co eliminuje efekty stałe importera i eksportera",
+    "Model Tobit z lewostronnym cenzurowaniem przy znanej wartości progowej (domyślnie log(1)=0)"
+  ),
+  `Typ modelu` = c(
+    "Log-log (addytywny)",
+    "Log-log (addytywny)",
+    "Log-log (addytywny)",
+    "Przetwarzanie danych",
+    "Cenzurowany (addytywny)",
+    "Cenzurowany (addytywny)",
+    "Log-log (addytywny)",
+    "Multiplikatywny",
+    "Zbiór danych",
+    "Zbiór danych",
+    "Narzędzie diagnostyczne",
+    "Przetwarzanie danych",
+    "Multiplikatywny",
+    "Multiplikatywny",
+    "Log-log (addytywny)",
+    "Multiplikatywny",
+    "Log-log (addytywny)",
+    "Multiplikatywny/OLS",
+    "Cenzurowany (addyktywny)"
+  )
+)
+
+tabela
+library(knitr)
+latex_tab <- kable(
+  tabela,
+  format = "latex",
+  booktabs = TRUE,
+  longtable = TRUE,
+  escape = TRUE,
+  col.names = c("Funkcja", "Opis i metoda estymacji", "Typ modelu")
+)
+
+cat(latex_tab)
+```
+
+# ARGUMENTY OLS
+```{r}
+ols <- data.frame(
+  `Argument funkcji` = c("dependent_variable", 
+                         "distance", 
+                         "additional_regressors", 
+                         "income_origin", 
+                         "income_destination", 
+                         "code_origin", 
+                         "code_destination", 
+                         "uie", 
+                         "robust", 
+                         "data"),
+  Opis = c("Nazwa zmiennej zależnej (typ: character)",
+           "Nazwa zmiennej dystansu (logarytmowana automatycznie przez funkcję)",
+           "Nazwy dodatkowych regresorów (np. zmienne binarne dla wspólnej granicy); domyślnie NULL",
+           "Zmienna masy zródła",
+           "Zmienna masy destynacji",
+           "Identyfikator źródła",
+           "Identyfikator destynacji",
+           "Wartość logiczna określająca, czy parametry mają być estymowane przy założeniu jednostkowej elastyczności dochodowej; domyślnie FALSE",
+           "Wartość logiczna określająca, czy stosować odporne dopasowanie modelu; domyślnie FALSE",
+           "Zbiór danych (data.frame)")
+) 
+ols 
+
+latex_ols <- kable(ols, format = "latex", booktabs = TRUE,
+      caption = "Argumenty funkcji ols()",
+      label = "tab:ols_args")
+cat(latex_ols)
+```
+
+# ARGUMENTY PPML
+```{r}
+ppml <- data.frame(
+  `Argument funkcji` = c("dependent_variable",
+                         "distance",
+                         "additional_regressors",
+                         "robust",
+                         "data"),
+  Opis = c("Nazwa zmiennej zależnej (typ: character)",
+           "Nazwa zmiennej dystansu (logarytmowana automatycznie przez funkcję)",
+           "Nazwy dodatkowych regresorów (jednostronne zmienne metryczne muszą zostać uprzednio zlogarytmowane, jeśli są tu stawiane)",
+           "Wartość logiczna określająca, czy stosować odporne dopasowanie modelu; domyślnie FALSE",
+           "Zbiór danych (data.frame)")
+)
+ppml
+
+latex_ppml <- kable(ppml, format = "latex", booktabs = TRUE,
+      caption = "Argumenty funkcji ppml()",
+      label = "tab:ppml_args")
+cat(latex_ppml)
+```
+
+# Lista Gmin i słownik gmin
+```{r}
+lista_gmin <- c(
+  "Koronowo",
+    "Pruszcz",
+    "Dobrcz",
+    "Dąbrowa Chełmińska",
+    "Osielsko",
+    "Sicienko",
+    "Białe Błota",
+    "Solec Kujawski",
+    "Nowa Wieś Wielka",
+    "Rojewo",
+    "Łabiszyn",
+    "Barcin",
+    "Żnin",
+    "Szubin",
+    "Kcynia",
+    "Nakło nad Notecią",
+    "Mrocza"
+)
+
+
+slownik_gmin <- c(
+  "Solec Kujawski - miasto" = "Solec Kujawski",
+  "Solec Kujawski - obszar wiejski" = "Solec Kujawski",
+  "Koronowo - miasto" = "Koronowo",
+  "Koronowo - obszar wiejski" = "Koronowo",
+  "Kcynia - miasto" = "Kcynia",
+  "Kcynia - obszar wiejski" = "Kcynia",
+  "Mrocza - miasto" = "Mrocza",
+  "Mrocza - obszar wiejski" = "Mrocza",
+  "Nakło nad Notecią - miasto" = "Nakło nad Notecią",
+  "Nakło nad Notecią - obszar wiejski" = "Nakło nad Notecią",
+  "Szubin - miasto" = "Szubin",
+  "Szubin - obszar wiejski" = "Szubin",
+  "Barcin - miasto" = "Barcin",
+  "Barcin - obszar wiejski" = "Barcin",
+  "Łabiszyn - miasto" = "Łabiszyn",
+  "Łabiszyn - obszar wiejski" = "Łabiszyn",
+  "Żnin - miasto" = "Żnin",
+  "Żnin - obszar wiejski" = "Żnin"
+)
+```
+
+# 2006
+```{r}
+Bydgoszcz_2006 <- dane_2006 %>% 
+  rename(
+    origin = PO_Gmina,
+    destination = PL_Gmina,
+    flow = Liczba_osob
+  ) %>% 
+  select(origin, destination, flow) %>% 
+  mutate(
+    origin = recode(origin, !!!slownik_gmin),
+    destination = recode(destination, !!!slownik_gmin)
+  ) %>% 
+  filter(
+    (destination == "Bydgoszcz" & origin %in% lista_gmin) |
+      (origin == "Bydgoszcz" & destination %in% lista_gmin)
+  ) %>% 
+  group_by(origin, destination) %>% 
+  summarise(
+    flow = sum(flow, na.rm = TRUE),
+    .groups = "drop"
+  ) 
+  
+```
+
+# 2011
+```{r}
+Bydgoszcz_2011 <- dane_2011 %>% 
+  rename(
+    origin = `Gmina zamieszkania`,
+    destination = `Gmina pracy`,
+    flow = `Liczba osób`
+  ) %>% 
+  select(origin, destination, flow) %>% 
+  mutate(
+    origin = recode(origin, !!!slownik_gmin),
+    destination = recode(destination, !!!slownik_gmin)
+  ) %>% 
+  filter(
+    (destination == "Bydgoszcz" & origin %in% lista_gmin) |
+      (origin == "Bydgoszcz" & destination %in% lista_gmin)
+  ) %>% 
+  group_by(origin, destination) %>% 
+  summarise(
+    flow = sum(flow, na.rm = TRUE),
+    .groups = "drop"
+  ) 
+```
+
+# 2016
+```{r}
+Bydgoszcz_2016 <- dane_2016 %>% 
+  rename(
+    origin = `Gmina miejsca zamieszkania`,
+    destination =`Gmina miejsca pracy`, 
+    flow = `Liczba osób`
+  ) %>% 
+  select(origin, destination, flow) %>% 
+  mutate(
+    origin = recode(origin, !!!slownik_gmin),
+    destination = recode(destination, !!!slownik_gmin)
+  ) %>% 
+  filter(
+    (destination == "Bydgoszcz" & origin %in% lista_gmin) |
+      (origin == "Bydgoszcz" & destination %in% lista_gmin)
+  ) %>% 
+  group_by(origin, destination) %>% 
+  summarise(
+    flow = sum(flow, na.rm = TRUE),
+    .groups = "drop"
+  ) 
+```
+
+# 2021
+```{r}
+Bydgoszcz_2021 <- dane_2021 %>% 
+  clean_names() %>% 
+  rename(
+    origin = nazwa_gminy_zamieszkania_gmina_of_residence_name,
+    destination =nazwa_gminy_pracy_gmina_of_labour_name, 
+    flow = dojezdzajacy_commuters
+  ) %>% 
+  select(origin, destination, flow) %>% 
+  mutate(
+    origin = recode(origin, !!!slownik_gmin),
+    destination = recode(destination, !!!slownik_gmin)
+  ) %>% 
+  filter(
+    (destination == "Bydgoszcz" & origin %in% lista_gmin) |
+      (origin == "Bydgoszcz" & destination %in% lista_gmin)
+  ) %>% 
+  group_by(origin, destination) %>% 
+  summarise(
+    flow = sum(flow, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+# ODLEGŁOŚCI
+```{r}
+gminy <- st_read("DANE/gminy.shp")
+
+lista_gmin_bydgoszcz <- c(
+  "Bydgoszcz",
+  "Koronowo",
+  "Pruszcz",
+  "Dobrcz",
+  "Dąbrowa Chełmińska",
+  "Osielsko",
+  "Sicienko",
+  "Białe Błota",
+  "Solec Kujawski",
+  "Nowa Wieś Wielka",
+  "Rojewo",
+  "Łabiszyn",
+  "Barcin",
+  "Żnin",
+  "Szubin",
+  "Kcynia",
+  "Nakło nad Notecią",
+  "Mrocza"
+)
+
+gminy_aglomeracji <- gminy %>% 
+  filter(JPT_NAZWA_ %in% lista_gmin_bydgoszcz)
+
+punkty <- st_point_on_surface(gminy_aglomeracji)
+
+bydgoszcz <- punkty %>% 
+  filter(JPT_NAZWA_ == "Bydgoszcz")
+
+pozostale <- punkty %>% 
+  filter(JPT_NAZWA_ != "Bydgoszcz")
+
+dist_eukl <- st_distance(bydgoszcz, pozostale)
+
+odleglosci_do_bydgoszczy <- tibble(
+  origin = pozostale$JPT_NAZWA_,
+  destination = "Bydgoszcz",
+  dist = round(as.numeric(dist_eukl[1, ]) / 1000, 2)
+)
+
+odleglosci_z_bydgoszczy <- tibble(
+  origin = "Bydgoszcz",
+  destination = pozostale$JPT_NAZWA_,
+  dist = round(as.numeric(dist_eukl[1, ]) / 1000, 2)
+)
+
+wynik_eukl <- bind_rows(
+  odleglosci_do_bydgoszczy,
+  odleglosci_z_bydgoszczy
+)
+
+
+# Czas przejazdu drogowego (OSRM)
+
+bydgoszcz_wgs84 <- st_transform(bydgoszcz, 4326)
+pozostale_wgs84 <- st_transform(pozostale, 4326)
+
+tab_z_bydgoszczy <- osrmTable(
+  src = bydgoszcz_wgs84,
+  dst = pozostale_wgs84
+)
+
+czasy_z_bydgoszczy <- tibble(
+  origin = "Bydgoszcz",
+  destination = pozostale_wgs84$JPT_NAZWA_,
+  czas_min = round(as.numeric(tab_z_bydgoszczy$durations[1, ]), 1)
+)
+
+
+tab_do_bydgoszczy <- osrmTable(
+  src = pozostale_wgs84,
+  dst = bydgoszcz_wgs84
+)
+
+czasy_do_bydgoszczy <- tibble(
+  origin = pozostale_wgs84$JPT_NAZWA_,
+  destination = "Bydgoszcz",
+  czas_min = round(as.numeric(tab_do_bydgoszczy$durations[, 1]), 1)
+)
+
+wynik_czasy <- bind_rows(
+  czasy_do_bydgoszczy,
+  czasy_z_bydgoszczy
+)
+
+# Odległość drogowa (OSRM) - w km
+
+tab_dystans_z_bydgoszczy <- osrmTable(
+  src = bydgoszcz_wgs84,
+  dst = pozostale_wgs84,
+  measure = "distance"
+)
+
+dystanse_z_bydgoszczy <- tibble(
+  origin = "Bydgoszcz",
+  destination = pozostale_wgs84$JPT_NAZWA_,
+  dist_drog_km = round(tab_dystans_z_bydgoszczy$distances[1, ] / 1000, 2)
+)
+
+tab_dystans_do_bydgoszczy <- osrmTable(
+  src = pozostale_wgs84,
+  dst = bydgoszcz_wgs84,
+  measure = "distance"
+)
+
+dystanse_do_bydgoszczy <- tibble(
+  origin = pozostale_wgs84$JPT_NAZWA_,
+  destination = "Bydgoszcz",
+  dist_drog_km = round(tab_dystans_do_bydgoszczy$distances[, 1] / 1000, 2)
+)
+
+wynik_dystanse <- bind_rows(
+  dystanse_do_bydgoszczy,
+  dystanse_z_bydgoszczy
+)
+
+wynik_koncowy <- wynik_eukl |>
+  left_join(wynik_czasy, by = c("origin", "destination")) |>
+  left_join(wynik_dystanse, by = c("origin", "destination"))
+
+print(wynik_koncowy)
+
+```
+
+# LUDNOŚĆ
+```{r}
+Liczba_ludnosci_2006 <- ludnosc_2006 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności 2006` = `ogółem`
+  )
+
+Liczba_ludnosci_2006$Kod <- NULL
+Liczba_ludnosci_2006$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_2006$`Nazwa gminy`)
+
+Liczba_ludnosci_2011 <- ludnosc_2011 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności 2011` = `ogółem`
+  )
+
+Liczba_ludnosci_2011$Kod <- NULL
+Liczba_ludnosci_2011$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_2011$`Nazwa gminy`)
+
+Liczba_ludnosci_2016 <- ludnosc_2016 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności 2016` = `ogółem`
+  )
+
+Liczba_ludnosci_2016$Kod <- NULL
+Liczba_ludnosci_2016$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_2016$`Nazwa gminy`)
+
+Liczba_ludnosci_2021 <- ludnosc_2021 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności 2021` = `ogółem`
+  )
+
+Liczba_ludnosci_2021$Kod <- NULL
+Liczba_ludnosci_2021$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_2021$`Nazwa gminy`)
+
+```
+
+# LUDNOŚĆ PRODUKCYJNA
+```{r}
+Liczba_ludnosci_produkcyjnej_2006 <- ludnosc_produkcyjna_2006 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności produkcyjnej 2006` = `w wieku produkcyjnym`
+  )
+
+Liczba_ludnosci_produkcyjnej_2006$Kod <- NULL
+Liczba_ludnosci_produkcyjnej_2006$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_produkcyjnej_2006$`Nazwa gminy`)
+
+Liczba_ludnosci_produkcyjnej_2011 <- ludnosc_produkcyjna_2011 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności produkcyjnej 2011` = `w wieku produkcyjnym`
+  )
+
+Liczba_ludnosci_produkcyjnej_2011$Kod <- NULL
+Liczba_ludnosci_produkcyjnej_2011$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_produkcyjnej_2011$`Nazwa gminy`)
+
+Liczba_ludnosci_produkcyjnej_2016 <- ludnosc_produkcyjna_2016 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności produkcyjnej 2016` = `w wieku produkcyjnym`
+  )
+
+Liczba_ludnosci_produkcyjnej_2016$Kod <- NULL
+Liczba_ludnosci_produkcyjnej_2016$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_produkcyjnej_2016$`Nazwa gminy`)
+
+Liczba_ludnosci_produkcyjnej_2021 <- ludnosc_produkcyjna_2021 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    `Nazwa gminy` = Nazwa,
+    `Liczba ludności produkcyjnej 2021` = `w wieku produkcyjnym`
+  )
+
+Liczba_ludnosci_produkcyjnej_2021$Kod <- NULL
+Liczba_ludnosci_produkcyjnej_2021$`Nazwa gminy` <- gsub(" \\(.*\\)", "", Liczba_ludnosci_produkcyjnej_2021$`Nazwa gminy`)
+```
+
+# UDZIAŁ W DOCHODZIE
+```{r}
+# 2006
+ogolny_udzial_2006 <- udzial_dochod_2006 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    gmina = Nazwa,
+    udzial_2006 = `gminy łącznie z miastami na prawach powiatu`
+  ) 
+
+ogolny_udzial_2006$Kod <- NULL
+ogolny_udzial_2006$gmina <- gsub(" \\(.*\\)", "", ogolny_udzial_2006$gmina)
+
+# 2011
+ogolny_udzial_2011 <- udzial_dochod_2011 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    gmina = Nazwa,
+    udzial_2011 = `gminy łącznie z miastami na prawach powiatu`
+  )
+
+ogolny_udzial_2011$Kod <- NULL
+ogolny_udzial_2011$gmina <- gsub(" \\(.*\\)", "", ogolny_udzial_2011$gmina)
+
+#2016
+ogolny_udzial_2016 <- udzial_dochod_2016 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    gmina = Nazwa,
+    udzial_2016 = `gminy łącznie z miastami na prawach powiatu`
+  )
+
+ogolny_udzial_2016$Kod <- NULL
+ogolny_udzial_2016$gmina <- gsub(" \\(.*\\)", "", ogolny_udzial_2016$gmina)
+
+# 2021
+ogolny_udzial_2021 <- udzial_dochod_2021 %>% 
+  slice(-(1:3)) %>% 
+  rename(
+    gmina = Nazwa,
+    udzial_2021 = `gminy łącznie z miastami na prawach powiatu`
+  )
+
+ogolny_udzial_2021$Kod <- NULL
+ogolny_udzial_2021$gmina <- gsub(" \\(.*\\)", "", ogolny_udzial_2021$gmina)
+```
+
+# FUNCKJE
+```{r}
+# przygotowanie danych
+przygotuj_dane <- function(bydgoszcz_df,
+                           wynik_odleglosci,
+                           ludnosc_df,
+                           ludnosc_prod_df,
+                           rok) {
+
+  pop_o <- paste0("pop_o_", rok)
+  pop_d <- paste0("pop_d_", rok)
+  pop_prod_o <- paste0("pop_prod_o_", rok)
+  pop_prod_d <- paste0("pop_prod_d_", rok)
+
+  bydgoszcz_df %>%
+    left_join(wynik_odleglosci, by = c("origin", "destination")) %>%
+    
+    left_join(
+      ludnosc_df %>%
+        rename(
+          origin = `Nazwa gminy`,
+          !!pop_o := paste0("Liczba ludności ", rok)
+        ),
+      by = "origin"
+    ) %>%
+    
+    left_join(
+      ludnosc_df %>%
+        rename(
+          destination = `Nazwa gminy`,
+          !!pop_d := paste0("Liczba ludności ", rok)
+        ),
+      by = "destination"
+    ) %>%
+    
+    left_join(
+      ludnosc_prod_df %>%
+        rename(
+          origin = `Nazwa gminy`,
+          !!pop_prod_o := paste0("Liczba ludności produkcyjnej ", rok)
+        ),
+      by = "origin"
+    ) %>%
+    
+    left_join(
+      ludnosc_prod_df %>%
+        rename(
+          destination = `Nazwa gminy`,
+          !!pop_prod_d := paste0("Liczba ludności produkcyjnej ", rok)
+        ),
+      by = "destination"
+    ) %>%
+    
+    mutate(
+      across(
+        all_of(c(pop_o, pop_d, pop_prod_o, pop_prod_d)),
+        as.numeric
+      )
+    )
+}
+
+# przygotowanie wyników  modelu
+
+przygotuj_wyniki_modelu <- function(dane, model) {
+  dane %>%
+    mutate(
+      y_hat_log = fitted(model),
+      flow_hat = round(exp(y_hat_log), 0),
+      error = flow - flow_hat,
+      abs_error = abs(error),
+      label = paste(origin, "→", destination)
+    ) %>%
+    select(origin, destination, flow, flow_hat, error, abs_error, label) %>%
+    arrange(desc(flow))
+}
+
+# wybranie największych błędów
+
+wybierz_top_bledy <- function(dane_wynikowe, n = 8) {
+  dane_wynikowe %>%
+    arrange(desc(abs_error)) %>%
+    slice_head(n = n)
+}
+
+# rysowanie wykresu
+
+rysuj_wykres_flow <- function(dane,
+                              model,
+                              tytul,
+                              podpisy = FALSE) {
+
+  r2 <- summary(model)$r.squared
+
+  wykres <- ggplot(dane, aes(x = flow, y = flow_hat)) +
+    geom_point() +
+    geom_abline(slope = 1, intercept = 0, color = "red") +
+    annotate(
+      "text",
+      x = Inf, y = -Inf,
+      label = paste0("R² = ", round(r2, 3)),
+      hjust = 1.1, vjust = -0.5,
+      size = 4
+    ) +
+    labs(
+      x = "Rzeczywiste przepływy",
+      y = "Oszacowane przepływy",
+      title = tytul
+    )
+
+  if (podpisy) {
+    wykres <- wykres +
+      geom_text_repel(aes(label = label), size = 3)
+  }
+
+  wykres
+}
+
+# pseudo r^2
+pseudo_r2 <- function(model) {
+  1 - (model$deviance / model$null.deviance)
+}
+
+join_and_calc <- function(dane, udzial, year) {
+  udzial_o <- paste0("udzial_o_", year)
+  udzial_d <- paste0("udzial_d_", year)
+  pop_o    <- paste0("pop_o_", year)
+  pop_d    <- paste0("pop_d_", year)
+  udzial   <- paste0("udzial_", year)
+  
+  dane %>%
+    left_join(get(paste0("ogolny_udzial_", year)), by = c("origin" = "gmina")) %>%
+    rename(!!udzial_o := !!sym(udzial)) %>%
+    left_join(get(paste0("ogolny_udzial_", year)), by = c("destination" = "gmina")) %>%
+    rename(!!udzial_d := !!sym(udzial)) %>%
+    mutate(
+      across(c(!!udzial_o, !!udzial_d, !!pop_o, !!pop_d), as.numeric),
+      !!paste0("udzial_per_pop_o_", year) := .data[[udzial_o]] / .data[[pop_o]],
+      !!paste0("udzial_per_pop_d_", year) := .data[[udzial_d]] / .data[[pop_d]]
+    )
+}
+
+```
+
+# !!!! OLS !!!!
+
+## MODEL 2006 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2006 <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2006,
+  wynik_odleglosci = wynik_eukl,
+  ludnosc_df = Liczba_ludnosci_2006,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2006,
+  rok = 2006
+)
+
+# dodanie dochod 
+
+DANE_2006 <- join_and_calc(DANE_2006, ogolny_udzial_2006, 2006)
+
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2006_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2006",
+  income_destination   = "pop_d_2006",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2006
+)
+summary(model_ludnosc_2006_ols)
+bptest(model_ludnosc_2006_ols)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2006_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2006",
+  income_destination   = "pop_prod_d_2006",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2006
+)
+summary(model_ludnosc_produkcyjna_2006_ols)
+bptest(model_ludnosc_produkcyjna_2006_ols)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2006_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "udzial_per_pop_o_2006",
+  income_destination   = "udzial_per_pop_d_2006",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2006
+)
+summary(model_udzial_2006_ols)
+bptest(model_udzial_2006_ols)
+
+```
+
+### PORÓWNANIE 2006 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2006_ludnosc_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2006,
+  model = model_ludnosc_2006_ols
+)
+
+DANE_2006_ludnosc_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2006_ludnosc_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_ols,
+  model = model_ludnosc_2006_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2006)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_ols_top,
+  model = model_ludnosc_2006_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2006)",
+  podpisy = TRUE
+)
+
+DANE_2006_ludnosc_produkcyjna_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2006,
+  model = model_ludnosc_produkcyjna_2006_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_produkcyjna_ols,
+  model = model_ludnosc_produkcyjna_2006_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2006)"
+)
+```
+
+## MODEL 2006 - CZAS DOJAZDU
+```{r}
+DANE_2006_czas <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2006,
+  wynik_odleglosci = wynik_czasy,
+  ludnosc_df = Liczba_ludnosci_2006,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2006,
+  rok = 2006
+)
+
+model_ludnosc_2006_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2006",
+  income_destination   = "pop_d_2006",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2006_czas
+)
+summary(model_ludnosc_2006_czas_ols)
+bptest(model_ludnosc_2006_czas_ols)
+
+model_ludnosc_produkcyjna_2006_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2006",
+  income_destination   = "pop_prod_d_2006",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2006_czas
+)
+summary(model_ludnosc_produkcyjna_2006_czas_ols)
+bptest(model_ludnosc_produkcyjna_2006_czas_ols)
+```
+
+### PORÓWNANIE 2006 - CZAS DOJAZDU
+```{r}
+DANE_2006_ludnosc_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2006_czas,
+  model = model_ludnosc_2006_czas_ols
+)
+
+DANE_2006_ludnosc_czas_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2006_ludnosc_czas_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_czas_ols,
+  model = model_ludnosc_2006_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2006 - czas)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_czas_ols_top,
+  model = model_ludnosc_2006_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2006 - czas)",
+  podpisy = TRUE
+)
+
+DANE_2006_ludnosc_produkcyjna_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2006_czas,
+  model = model_ludnosc_produkcyjna_2006_czas_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2006_ludnosc_produkcyjna_czas_ols,
+  model = model_ludnosc_produkcyjna_2006_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2006 - czas)"
+)
+```
+
+## MODEL 2011 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2011 <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2011,
+  wynik_odleglosci = wynik_eukl,
+  ludnosc_df = Liczba_ludnosci_2011,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2011,
+  rok = 2011
+)
+
+# Dodanie udzialu
+DANE_2011 <- join_and_calc(DANE_2011, ogolny_udzial_2011, 2011)
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2011_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2011",
+  income_destination   = "pop_d_2011",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2011
+)
+summary(model_ludnosc_2011_ols)
+bptest(model_ludnosc_2011_ols)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2011_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2011",
+  income_destination   = "pop_prod_d_2011",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2011
+)
+summary(model_ludnosc_produkcyjna_2011_ols)
+bptest(model_ludnosc_produkcyjna_2011_ols)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2011_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "udzial_per_pop_o_2011",
+  income_destination   = "udzial_per_pop_d_2011",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2011
+)
+summary(model_udzial_2011_ols)
+bptest(model_udzial_2011_ols)
+```
+
+### PORÓWNANIE 2011 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2011_ludnosc_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2011,
+  model = model_ludnosc_2011_ols
+)
+
+DANE_2011_ludnosc_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2011_ludnosc_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_ols,
+  model = model_ludnosc_2011_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2011)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_ols_top,
+  model = model_ludnosc_2011_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2011)",
+  podpisy = TRUE
+)
+
+DANE_2011_ludnosc_produkcyjna_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2011,
+  model = model_ludnosc_produkcyjna_2011_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_produkcyjna_ols,
+  model = model_ludnosc_produkcyjna_2011_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2011)"
+)
+
+```
+
+## MODEL 2011 - CZAS DOJAZDU
+```{r}
+DANE_2011_czas <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2011,
+  wynik_odleglosci = wynik_czasy,
+  ludnosc_df = Liczba_ludnosci_2011,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2011,
+  rok = 2011
+)
+
+model_ludnosc_2011_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2011",
+  income_destination   = "pop_d_2011",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2011_czas
+)
+summary(model_ludnosc_2011_czas_ols)
+bptest(model_ludnosc_2011_czas_ols)
+
+model_ludnosc_produkcyjna_2011_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2011",
+  income_destination   = "pop_prod_d_2011",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2011_czas
+)
+summary(model_ludnosc_produkcyjna_2011_czas_ols)
+bptest(model_ludnosc_produkcyjna_2011_czas_ols)
+```
+
+### PORÓWNANIE 2011 - CZAS DOJAZDU
+```{r}
+DANE_2011_ludnosc_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2011_czas,
+  model = model_ludnosc_2011_czas_ols
+)
+
+DANE_2011_ludnosc_czas_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2011_ludnosc_czas_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_czas_ols,
+  model = model_ludnosc_2011_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2011 - czas)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_czas_ols_top,
+  model = model_ludnosc_2011_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2011 - czas)",
+  podpisy = TRUE
+)
+
+DANE_2011_ludnosc_produkcyjna_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2011_czas,
+  model = model_ludnosc_produkcyjna_2011_czas_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2011_ludnosc_produkcyjna_czas_ols,
+  model = model_ludnosc_produkcyjna_2011_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2011 - czas)"
+)
+```
+
+## MODEL 2016 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2016 <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2016,
+  wynik_odleglosci = wynik_eukl,
+  ludnosc_df = Liczba_ludnosci_2016,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2016,
+  rok = 2016
+)
+
+# dodanie udziału
+DANE_2016 <- join_and_calc(DANE_2016, ogolny_udzial_2016, 2016)
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2016_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2016",
+  income_destination   = "pop_d_2016",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2016
+)
+summary(model_ludnosc_2016_ols)
+bptest(model_ludnosc_2016_ols)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2016_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2016",
+  income_destination   = "pop_prod_d_2016",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2016
+)
+summary(model_ludnosc_produkcyjna_2016_ols)
+bptest(model_ludnosc_produkcyjna_2016_ols)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2016_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "udzial_per_pop_o_2016",
+  income_destination   = "udzial_per_pop_d_2016",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2016
+)
+summary(model_udzial_2016_ols)
+bptest(model_udzial_2016_ols)
+```
+
+### PORÓWNANIE 2016 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2016_ludnosc_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2016,
+  model = model_ludnosc_2016_ols
+)
+
+DANE_2016_ludnosc_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2016_ludnosc_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_ols,
+  model = model_ludnosc_2016_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2016)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_ols_top,
+  model = model_ludnosc_2016_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2016)",
+  podpisy = TRUE
+)
+
+DANE_2016_ludnosc_produkcyjna_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2016,
+  model = model_ludnosc_produkcyjna_2016_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_produkcyjna_ols,
+  model = model_ludnosc_produkcyjna_2016_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2016)"
+)
+```
+
+## MODEL 2016 - CZAS DOJAZDU
+```{r}
+DANE_2016_czas <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2016,
+  wynik_odleglosci = wynik_czasy,
+  ludnosc_df = Liczba_ludnosci_2016,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2016,
+  rok = 2016
+)
+
+model_ludnosc_2016_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2016",
+  income_destination   = "pop_d_2016",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2016_czas
+)
+summary(model_ludnosc_2016_czas_ols)
+bptest(model_ludnosc_2016_czas_ols)
+
+model_ludnosc_produkcyjna_2016_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2016",
+  income_destination   = "pop_prod_d_2016",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2016_czas
+)
+summary(model_ludnosc_produkcyjna_2016_czas_ols)
+bptest(model_ludnosc_produkcyjna_2016_czas_ols)
+```
+
+### PORÓWNANIE 2016 - CZAS DOJAZDU
+```{r}
+DANE_2016_ludnosc_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2016_czas,
+  model = model_ludnosc_2016_czas_ols
+)
+
+DANE_2016_ludnosc_czas_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2016_ludnosc_czas_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_czas_ols,
+  model = model_ludnosc_2016_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2016 - czas)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_czas_ols_top,
+  model = model_ludnosc_2016_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2016 - czas)",
+  podpisy = TRUE
+)
+
+DANE_2016_ludnosc_produkcyjna_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2016_czas,
+  model = model_ludnosc_produkcyjna_2016_czas_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2016_ludnosc_produkcyjna_czas_ols,
+  model = model_ludnosc_produkcyjna_2016_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2016 - czas)"
+)
+```
+
+## MODEL 2021 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2021 <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2021,
+  wynik_odleglosci = wynik_eukl,
+  ludnosc_df = Liczba_ludnosci_2021,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2021,
+  rok = 2021
+)
+
+# dodanie udziału
+DANE_2021 <- join_and_calc(DANE_2021, ogolny_udzial_2021, 2021)
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2021_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2021",
+  income_destination   = "pop_d_2021",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2021
+)
+summary(model_ludnosc_2021_ols)
+bptest(model_ludnosc_2021_ols)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2021_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2021",
+  income_destination   = "pop_prod_d_2021",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2021
+)
+summary(model_ludnosc_produkcyjna_2021_ols)
+bptest(model_ludnosc_produkcyjna_2021_ols)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2021_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "dist",
+  additional_regressors = NULL,
+  income_origin        = "udzial_per_pop_o_2021",
+  income_destination   = "udzial_per_pop_d_2021",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2021
+)
+summary(model_udzial_2021_ols)
+bptest(model_udzial_2021_ols)
+```
+
+### PORÓWNANIE 2021 - ODLEGŁOŚĆ EUKLIDESOWA
+```{r}
+DANE_2021_ludnosc_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2021,
+  model = model_ludnosc_2021_ols
+)
+
+DANE_2021_ludnosc_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2021_ludnosc_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_ols,
+  model = model_ludnosc_2021_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2021)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_ols_top,
+  model = model_ludnosc_2021_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2021)",
+  podpisy = TRUE
+)
+
+DANE_2021_ludnosc_produkcyjna_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2021,
+  model = model_ludnosc_produkcyjna_2021_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_produkcyjna_ols,
+  model = model_ludnosc_produkcyjna_2021_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2021)"
+)
+```
+
+## MODEL 2021 - CZAS DOJAZDU
+```{r}
+DANE_2021_czas <- przygotuj_dane(
+  bydgoszcz_df = Bydgoszcz_2021,
+  wynik_odleglosci = wynik_czasy,
+  ludnosc_df = Liczba_ludnosci_2021,
+  ludnosc_prod_df = Liczba_ludnosci_produkcyjnej_2021,
+  rok = 2021
+)
+
+model_ludnosc_2021_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_o_2021",
+  income_destination   = "pop_d_2021",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2021_czas
+)
+summary(model_ludnosc_2021_czas_ols)
+bptest(model_ludnosc_2021_czas_ols)
+
+model_ludnosc_produkcyjna_2021_czas_ols <- ols(
+  dependent_variable   = "flow",
+  distance             = "czas_min",
+  additional_regressors = NULL,
+  income_origin        = "pop_prod_o_2021",
+  income_destination   = "pop_prod_d_2021",
+  code_origin          = "origin",
+  code_destination     = "destination",
+  uie                  = FALSE, 
+  robust               = FALSE,
+  data                 = DANE_2021_czas
+)
+summary(model_ludnosc_produkcyjna_2021_czas_ols)
+bptest(model_ludnosc_produkcyjna_2021_czas_ols)
+```
+
+### PORÓWNANIE 2021 - CZAS DOJAZDU
+```{r}
+DANE_2021_ludnosc_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2021_czas,
+  model = model_ludnosc_2021_czas_ols
+)
+
+DANE_2021_ludnosc_czas_ols_top <- wybierz_top_bledy(
+  dane_wynikowe = DANE_2021_ludnosc_czas_ols,
+  n = 8
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_czas_ols,
+  model = model_ludnosc_2021_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2021 - czas)"
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_czas_ols_top,
+  model = model_ludnosc_2021_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność ogółem 2021 - czas)",
+  podpisy = TRUE
+)
+
+DANE_2021_ludnosc_produkcyjna_czas_ols <- przygotuj_wyniki_modelu(
+  dane = DANE_2021_czas,
+  model = model_ludnosc_produkcyjna_2021_czas_ols
+)
+
+rysuj_wykres_flow(
+  dane = DANE_2021_ludnosc_produkcyjna_czas_ols,
+  model = model_ludnosc_produkcyjna_2021_czas_ols,
+  tytul = "Porównanie wartości rzeczywistych i estymowanych (ludność w wieku produkcyjnym 2021 - czas)"
+)
+```
+
+# !!!! PPML !!!!
+
+## 2006 euklidesowa
+```{r}
+DANE_2006_ppml <- DANE_2006 %>% 
+  mutate(
+    log_pop_o_2006 = log(pop_o_2006),
+    log_pop_d_2006 = log(pop_d_2006),
+    log_pop_prod_o_2006 = log(pop_prod_o_2006),
+    log_pop_prod_d_2006 = log(pop_prod_d_2006),
+    log_udzial_per_pop_o_2006 = log(udzial_per_pop_o_2006),
+    log_udzial_per_pop_d_2006 = log(udzial_per_pop_d_2006)
+  )
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2006_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_o_2006", "log_pop_d_2006"),
+  data                  = DANE_2006_ppml
+)
+
+summary(model_ludnosc_2006_ppml)
+pseudo_r2(model_ludnosc_2006_ppml)
+bptest(model_ludnosc_2006_ppml)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2006_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_prod_o_2006", "log_pop_prod_d_2006"),
+  data                  = DANE_2006_ppml
+)
+
+summary(model_ludnosc_produkcyjna_2006_ppml)
+pseudo_r2(model_ludnosc_produkcyjna_2006_ppml)
+bptest(model_ludnosc_produkcyjna_2006_ppml)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2006_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_udzial_per_pop_o_2006", "log_udzial_per_pop_d_2006"),
+  data                  = DANE_2006_ppml
+)
+
+summary(model_udzial_2006_ppml)
+pseudo_r2(model_udzial_2006_ppml)
+bptest(model_udzial_2006_ppml)
+```
+
+## 2011 euklidesowa
+```{r}
+DANE_2011_ppml <- DANE_2011 %>% 
+  mutate(
+    log_pop_o_2011 = log(pop_o_2011),
+    log_pop_d_2011 = log(pop_d_2011),
+    log_pop_prod_o_2011 = log(pop_prod_o_2011),
+    log_pop_prod_d_2011 = log(pop_prod_d_2011),
+    log_udzial_per_pop_o_2011 = log(udzial_per_pop_o_2011),
+    log_udzial_per_pop_d_2011 = log(udzial_per_pop_d_2011)
+  )
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2011_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_o_2011", "log_pop_d_2011"),
+  data                  = DANE_2011_ppml
+)
+
+summary(model_ludnosc_2011_ppml)
+pseudo_r2(model_ludnosc_2011_ppml)
+bptest(model_ludnosc_2011_ppml)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2011_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_prod_o_2011", "log_pop_prod_d_2011"),
+  data                  = DANE_2011_ppml
+)
+
+summary(model_ludnosc_produkcyjna_2011_ppml)
+pseudo_r2(model_ludnosc_produkcyjna_2011_ppml)
+bptest(model_ludnosc_produkcyjna_2011_ppml)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2011_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_udzial_per_pop_o_2011", "log_udzial_per_pop_d_2011"),
+  data                  = DANE_2011_ppml
+)
+
+summary(model_udzial_2011_ppml)
+pseudo_r2(model_udzial_2011_ppml)
+bptest(model_udzial_2011_ppml)
+```
+
+## 2016 euklidesowa
+```{r}
+DANE_2016_ppml <- DANE_2016 %>% 
+  mutate(
+    log_pop_o_2016 = log(pop_o_2016),
+    log_pop_d_2016 = log(pop_d_2016),
+    log_pop_prod_o_2016 = log(pop_prod_o_2016),
+    log_pop_prod_d_2016 = log(pop_prod_d_2016),
+    log_udzial_per_pop_o_2016 = log(udzial_per_pop_o_2016),
+    log_udzial_per_pop_d_2016 = log(udzial_per_pop_d_2016)
+  )
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2016_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_o_2016", "log_pop_d_2016"),
+  data                  = DANE_2016_ppml
+)
+
+summary(model_ludnosc_2016_ppml)
+pseudo_r2(model_ludnosc_2016_ppml)
+bptest(model_ludnosc_2016_ppml)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2016_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_prod_o_2016", "log_pop_prod_d_2016"),
+  data                  = DANE_2016_ppml
+)
+
+summary(model_ludnosc_produkcyjna_2016_ppml)
+pseudo_r2(model_ludnosc_produkcyjna_2016_ppml)
+bptest(model_ludnosc_produkcyjna_2016_ppml)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2016_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_udzial_per_pop_o_2016", "log_udzial_per_pop_d_2016"),
+  data                  = DANE_2016_ppml
+)
+
+summary(model_udzial_2016_ppml)
+pseudo_r2(model_udzial_2016_ppml)
+bptest(model_udzial_2016_ppml)
+```
+
+## 2021 euklidesowa
+```{r}
+DANE_2021_ppml <- DANE_2021 %>% 
+  mutate(
+    log_pop_o_2021 = log(pop_o_2021),
+    log_pop_d_2021 = log(pop_d_2021),
+    log_pop_prod_o_2021 = log(pop_prod_o_2021),
+    log_pop_prod_d_2021 = log(pop_prod_d_2021),
+    log_udzial_per_pop_o_2021 = log(udzial_per_pop_o_2021),
+    log_udzial_per_pop_d_2021 = log(udzial_per_pop_d_2021)
+  )
+
+print("==================================")
+print("LUDNOŚĆ")
+print("==================================")
+
+model_ludnosc_2021_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_o_2021", "log_pop_d_2021"),
+  data                  = DANE_2021_ppml
+)
+
+summary(model_ludnosc_2021_ppml)
+pseudo_r2(model_ludnosc_2021_ppml)
+bptest(model_ludnosc_2021_ppml)
+
+print("==================================")
+print("LUDNOŚĆ W WIEKU PRODUKCYJNYM")
+print("==================================")
+
+model_ludnosc_produkcyjna_2021_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_pop_prod_o_2021", "log_pop_prod_d_2021"),
+  data                  = DANE_2021_ppml
+)
+
+summary(model_ludnosc_produkcyjna_2021_ppml)
+pseudo_r2(model_ludnosc_produkcyjna_2021_ppml)
+bptest(model_ludnosc_produkcyjna_2021_ppml)
+
+print("==================================")
+print("UDZIAŁ W DOCHODZIE") 
+print("==================================")
+
+model_udzial_2021_ppml <- ppml(
+  dependent_variable    = "flow",
+  distance              = "dist",
+  additional_regressors = c("log_udzial_per_pop_o_2021", "log_udzial_per_pop_d_2021"),
+  data                  = DANE_2021_ppml
+)
+
+summary(model_udzial_2021_ppml)
+pseudo_r2(model_udzial_2021_ppml)
+bptest(model_udzial_2021_ppml)
+```
+
+# AUTOKORELACJA EUKLIDESOWA LUDNOSC -> BRAK!
+```{r}
+lata <- c("2006", "2011", "2016", "2021")
+
+dane_lista_ludnosc <- lata |>
+  setNames(lata) |>
+  map(~ get(paste0("DANE_", .x, "_ludnosc_ols")))
+
+# 3. FUNKCJA LICZĄCA MORANA DLA JEDNEGO ROKU
+policz_morana <- function(dane_rok, gminy, rok) {
+  
+  reszty_gminy <- dane_rok |>
+    group_by(origin) |>
+    summarise(mean_error = mean(error, na.rm = TRUE)) |>
+    left_join(GMINY, by = c("origin" = "origin")) |>  # dostosuj!
+    st_as_sf()
+  
+  nb <- poly2nb(reszty_gminy, queen = TRUE)
+  lw <- nb2listw(nb, style = "W", zero.policy = TRUE)
+  
+  mt <- moran.test(reszty_gminy$mean_error, lw, zero.policy = TRUE)
+  mc <- moran.mc(reszty_gminy$mean_error, lw, nsim = 999, zero.policy = TRUE)
+  
+  moran.plot(reszty_gminy$mean_error, lw,
+             xlab = "Reszty modelu",
+             ylab = "Przestrzenny lag reszt",
+             main = paste("Wykres Morana —", rok))
+  
+  data.frame(
+    rok        = rok,
+    moran_I    = round(mt$estimate["Moran I statistic"], 4),
+    oczekiwana = round(mt$estimate["Expectation"], 4),
+    wariancja  = round(mt$estimate["Variance"], 6),
+    p_value    = round(mt$p.value, 4),
+    p_mc       = round(mc$p.value, 4),
+    istotny    = mt$p.value < 0.05
+  )
+}
+
+# 4. URUCHOM DLA WSZYSTKICH LAT
+wyniki_morana_ludnosc_ols <- imap_dfr(dane_lista_ludnosc, ~ policz_morana(.x, gminy, .y))
+
+# 5. TABELA ZBIORCZA
+print(wyniki_morana_ludnosc_ols)
+
+```
+
+# AUTOKORELACJA LUDNOŚĆ W WIEKU PRODUKCYJNYM -> BRAK
+```{r}
+dane_lista_ludnosc_produkcyjna <- lata |>
+  setNames(lata) |>
+  map(~ get(paste0("DANE_", .x, "_ludnosc_produkcyjna_ols")))
+
+wyniki_morana_ludnosc_produkcyjna_ols <- imap_dfr(dane_lista_ludnosc_produkcyjna, ~ policz_morana(.x, gminy, .y))
+
+print(wyniki_morana_ludnosc_produkcyjna_ols)
+```
+
+# AUTOKORELACJA UDZIAL W DOCHODZIE -> BRAK
+```{r}
+wyniki_moran_udzial <- bind_rows(
+  policz_moran_dla_roku(DANE_2006, model_udzial_2006_ols) |>
+    mutate(rok = 2006),
+  policz_moran_dla_roku(DANE_2011, model_udzial_2011_ols) |>
+    mutate(rok = 2011),
+  policz_moran_dla_roku(DANE_2016, model_udzial_2016_ols) |>
+    mutate(rok = 2016),
+  policz_moran_dla_roku(DANE_2021, model_udzial_2021_ols) |>
+    mutate(rok = 2021)
+) |>
+  select(rok, everything())
+
+print(wyniki_moran_udzial)
+```
+
+
+# MAPY Z PORÓWNANIEM
+
+## 2006
+```{r}
+GMINY <- st_read('DANE/gminy.shp') %>% 
+  filter(JPT_NAZWA_ %in% lista_gmin_bydgoszcz) %>% 
+  rename(origin=JPT_NAZWA_) %>% 
+  mutate(origin_join = trimws(origin))
+
+DANE_2006_ludnosc_ols_bdg <- DANE_2006_ludnosc_ols %>%
+  filter(destination == "Bydgoszcz") %>% 
+  mutate(origin_join = trimws(origin))
+
+GMINY_z_bledem <- GMINY %>%
+  left_join(
+    DANE_2006_ludnosc_ols_bdg %>% select(origin_join, abs_error),
+    by = "origin_join"
+  )
+
+ggplot(GMINY_z_bledem) +
+  geom_sf(aes(fill = abs_error), color = "grey37", linewidth = 0.3) +
+  geom_sf(aes(fill = abs_error), color = "grey37", linewidth = 0.3) +
+  scale_fill_fermenter(
+    breaks    = c(0, 50, 100, 200, 500, 800, 1000, 2000, 3000),
+    palette   = "YlOrBr",
+    direction = 1,
+    labels    = scales::comma,
+    name      = ""
+  ) +
+  geom_sf_text(
+  aes(label = origin),
+  size     = 2.5,
+  color    = "black",
+  fontface = "bold",
+  bg.color = "white",    
+  bg.r     = 0.15 
+  ) +
+  labs(
+    title    = "Przepływy do Bydgoszczy – błąd modelu (2006)",
+    subtitle = "|rzeczywiste przepływy − oszacowane przepływy| wg gminy pochodzenia"
+  ) +
+  theme_void()
+```
+
+
+
